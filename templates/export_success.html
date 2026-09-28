@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Export Complete - ComicCraft</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', path='css/style.css') }}"
+    >
+</head>
+
+<body>
+
+    <header class="site-header">
+        <div class="container">
+            <h1>🎨 ComicCraft</h1>
+            <p>PDF Export</p>
+        </div>
+    </header>
+
+
+    <main class="container">
+
+        <section class="success-card">
+
+            <div class="success-icon">
+                ✓
+            </div>
+
+            <h2>Comic Exported Successfully!</h2>
+
+            <p>
+                Your ComicCraft PDF is ready.
+            </p>
+
+
+            <div class="export-actions">
+
+                <a
+                    href="/download/{{ filename }}"
+                    class="download-button"
+                >
+                    📥 Download PDF
+                </a>
+
+                <a
+                    href="/"
+                    class="secondary-button"
+                >
+                    ← Create Another Comic
+                </a>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <footer class="site-footer">
+
+        <div class="container">
+
+            <p>
+                © 2026 ComicCraft — AI Comic Generator
+            </p>
+
+        </div>
+
+    </footer>
+
+</body>
+
+</html>

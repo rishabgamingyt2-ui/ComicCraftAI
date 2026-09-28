@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>{{ title }} - ComicCraft</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', path='css/style.css') }}"
+    >
+</head>
+
+<body>
+
+    <header class="site-header">
+        <div class="container">
+            <h1>🎨 ComicCraft</h1>
+            <p>Your AI-generated comic</p>
+        </div>
+    </header>
+
+
+    <main class="container">
+
+        <section class="preview-header">
+
+            <h2>{{ title }}</h2>
+
+            <p>
+                Your 5-panel comic has been generated.
+            </p>
+
+            <div class="preview-actions">
+
+                <a
+                    href="/download/{{ pdf_filename }}"
+                    class="download-button"
+                >
+                    📥 Download PDF
+                </a>
+
+                <a
+                    href="/"
+                    class="secondary-button"
+                >
+                    ← Create Another Comic
+                </a>
+
+            </div>
+
+        </section>
+
+
+        <section class="comic-grid">
+
+            {% for panel in panels %}
+
+            <article class="comic-panel">
+
+                <div class="panel-number">
+                    Panel {{ panel.panel_number }}
+                </div>
+
+
+                <div class="panel-image">
+
+                    <img
+                        src="{{ url_for('static', path='panels/' ~ panel.image_path.split('\\')[-1].split('/')[-1]) }}"
+                        alt="Comic panel {{ panel.panel_number }}"
+                    >
+
+                </div>
+
+
+                <div class="panel-content">
+
+                    {% if panel.caption %}
+
+                    <h3>
+                        {{ panel.caption }}
+                    </h3>
+
+                    {% endif %}
+
+
+                    {% if panel.scene_description %}
+
+                    <div class="content-block">
+
+                        <strong>
+                            Scene
+                        </strong>
+
+                        <p>
+                            {{ panel.scene_description }}
+                        </p>
+
+                    </div>
+
+                    {% endif %}
+
+
+                    {% if panel.narration %}
+
+                    <div class="content-block">
+
+                        <strong>
+                            Narration
+                        </strong>
+
+                        <p>
+                            {{ panel.narration }}
+                        </p>
+
+                    </div>
+
+                    {% endif %}
+
+
+                    {% if panel.dialogue %}
+
+                    <div class="content-block dialogue">
+
+                        <strong>
+                            Dialogue
+                        </strong>
+
+                        <p>
+                            "{{ panel.dialogue }}"
+                        </p>
+
+                    </div>
+
+                    {% endif %}
+
+                </div>
+
+            </article>
+
+            {% endfor %}
+
+        </section>
+
+    </main>
+
+
+    <footer class="site-footer">
+
+        <div class="container">
+
+            <p>
+                © 2026 ComicCraft — AI Comic Generator
+            </p>
+
+        </div>
+
+    </footer>
+
+</body>
+
+</html>

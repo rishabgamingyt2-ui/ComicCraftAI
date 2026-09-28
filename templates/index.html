@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>{{ app_name }} - AI Comic Generator</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', path='css/style.css') }}"
+    >
+</head>
+
+<body>
+
+    <header class="site-header">
+        <div class="container">
+            <h1>🎨 ComicCraft</h1>
+            <p>AI-Powered Personalized Comic Generator</p>
+        </div>
+    </header>
+
+
+    <main class="container">
+
+        <section class="hero">
+            <h2>Create Your Own Comic</h2>
+
+            <p>
+                Enter your story idea and let AI turn it into
+                a personalized 5-panel comic.
+            </p>
+        </section>
+
+
+        <section class="form-card">
+
+            <form
+                action="/generate"
+                method="post"
+                id="comic-form"
+            >
+
+                <div class="form-group">
+                    <label for="prompt">
+                        Story Idea
+                    </label>
+
+                    <textarea
+                        id="prompt"
+                        name="prompt"
+                        rows="5"
+                        maxlength="1200"
+                        placeholder="Example: A young man starts a small tea business and slowly turns it into a successful shop..."
+                        required
+                    ></textarea>
+                </div>
+
+
+                <div class="form-row">
+
+                    <div class="form-group">
+                        <label for="character_name">
+                            Character Name
+                        </label>
+
+                        <input
+                            type="text"
+                            id="character_name"
+                            name="character_name"
+                            value="Main Character"
+                            maxlength="100"
+                        >
+                    </div>
+
+
+                    <div class="form-group">
+                        <label for="setting">
+                            Setting
+                        </label>
+
+                        <input
+                            type="text"
+                            id="setting"
+                            name="setting"
+                            value="A realistic Indian setting"
+                            maxlength="200"
+                        >
+                    </div>
+
+                </div>
+
+
+                <div class="form-row">
+
+                    <div class="form-group">
+                        <label for="tone">
+                            Tone
+                        </label>
+
+                        <select
+                            id="tone"
+                            name="tone"
+                        >
+                            <option value="Inspirational">
+                                Inspirational
+                            </option>
+
+                            <option value="Funny">
+                                Funny
+                            </option>
+
+                            <option value="Emotional">
+                                Emotional
+                            </option>
+
+                            <option value="Dramatic">
+                                Dramatic
+                            </option>
+
+                            <option value="Adventure">
+                                Adventure
+                            </option>
+                        </select>
+                    </div>
+
+
+                    <div class="form-group">
+                        <label for="art_style">
+                            Art Style
+                        </label>
+
+                        <select
+                            id="art_style"
+                            name="art_style"
+                        >
+                            <option value="Cinematic comic style">
+                                Cinematic Comic
+                            </option>
+
+                            <option value="2D cartoon style">
+                                2D Cartoon
+                            </option>
+
+                            <option value="3D cartoon style">
+                                3D Cartoon
+                            </option>
+
+                            <option value="Realistic comic style">
+                                Realistic
+                            </option>
+                        </select>
+                    </div>
+
+                </div>
+
+
+                <button
+                    type="submit"
+                    class="generate-button"
+                    id="generate-button"
+                >
+                    ✨ Generate Comic
+                </button>
+
+            </form>
+
+        </section>
+
+
+        <section class="info-section">
+
+            <div class="info-card">
+                <h3>📝 1. Enter Your Idea</h3>
+
+                <p>
+                    Describe the story you want to turn into
+                    a comic.
+                </p>
+            </div>
+
+
+            <div class="info-card">
+                <h3>🤖 2. AI Creates the Story</h3>
+
+                <p>
+                    ComicCraft creates a structured
+                    5-panel story.
+                </p>
+            </div>
+
+
+            <div class="info-card">
+                <h3>🎨 3. Generate Your Comic</h3>
+
+                <p>
+                    Your panels are generated and prepared
+                    for preview and PDF export.
+                </p>
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <footer class="site-footer">
+        <div class="container">
+            <p>
+                © 2026 ComicCraft — AI Comic Generator
+            </p>
+        </div>
+    </footer>
+
+
+    <script
+        src="{{ url_for('static', path='js/app.js') }}"
+    ></script>
+
+</body>
+</html>
