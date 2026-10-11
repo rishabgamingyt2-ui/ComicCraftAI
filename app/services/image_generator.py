@@ -1,80 +1,124 @@
 
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from PIL import Image, ImageDraw, ImageFont
+
+from app.config import settings
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+def _create_placeholder(prompt: str, output_path: Path) -> Path:
+    """Create a placeholder image for development/testing."""
+    width = settings.IMAGE_WIDTH
+    height = settings.IMAGE_HEIGHT
 
+    image = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(image)
 
-class Settings(BaseSettings):
-    APP_NAME: str = "ComicCraft"
-    APP_ENV: str = "development"
-    DEBUG: bool = True
-
-    GEMINI_API_KEY: str = ""
-    GEMINI_OUTLINE_MODEL: str = "gemini-3.8-flash"
-    GEMINI_STORY_MODEL: str = "gemini-3.8-flash"
-
-    IMAGE_PROVIDER: str = "placeholder"
-    HF_API_KEY: str = ""
-    HF_IMAGE_MODEL: str = "stabilityai/stable-diffusion-xl-base-1.0"
-    LOCAL_IMAGE_MODEL: str = "runwayml/stable-diffusion-v1-5"
-
-    IMAGE_WIDTH: int = 768
-    IMAGE_HEIGHT: int = 768
-    IMAGE_STEPS: int = 25
-    IMAGE_GUIDANCE: float = 7.5
-
-    MAX_PANELS: int = 5
-    MAX_PROMPT_LENGTH: int = 1200
-
-    BASE_DIR: Path = BASE_DIR
-    TEMPLATES_DIR: Path = BASE_DIR / "templates"
-    STATIC_DIR: Path = BASE_DIR / "static"
-    PANELS_DIR: Path = BASE_DIR / "static" / "panels"
-    EXPORTS_DIR: Path = BASE_DIR / "static" / "exports"
-
-    model_config = SettingsConfigDict(
-        env_file=BASE_DIR / ".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-
-def load_settings() -> Settings:
-    secret_values = {}
-
-    secret_keys = (
-        "GEMINI_API_KEY",
-        "GEMINI_OUTLINE_MODEL",
-        "GEMINI_STORY_MODEL",
-        "IMAGE_PROVIDER",
-        "HF_API_KEY",
-        "HF_IMAGE_MODEL",
-        "IMAGE_WIDTH",
-        "IMAGE_HEIGHT",
-        "IMAGE_STEPS",
-        "IMAGE_GUIDANCE",
-        "MAX_PANELS",
-        "MAX_PROMPT_LENGTH",
-    )
+    title = "ComicCraft"
+    subtitle = "AI Comic Panel"
 
     try:
-        import streamlit as st
+        title_font = ImageFont.truetype("arial.ttf", 42)
+        subtitle_font = ImageFont.truetype("arial.ttf", 24)
+    except OSError:
+        title_font = ImageFont.load_default()
+        subtitle_font = ImageFont.load_default()
 
-        for key in secret_keys:
-            if key in st.secrets:
-                secret_values[key] = st.secrets[key]
+    title_box = draw.textbbox((0, 0), title, font=title_font)
+    title_width = title_box[2] - title_box[0]
 
-    except Exception:
-        # Streamlit Secrets may not exist during local development.
-        pass
+    draw.text(
+        ((width - title_width) / 2, height / 2 - 80),
+        title,
+        fill="black",
+        font=title_font,
+    )
 
-    return Settings(**secret_values)
+    subtitle_box = draw.textbbox((0, 0), subtitle, font=subtitle_font)
+    subtitle_width = subtitle_box[2] - subtitle_box[0]
+
+    draw.text(
+        ((width - subtitle_width) / 2, height / 2),
+        subtitle,
+        fill="black",
+        font=subtitle_font,
+    )
+
+    image.save(output_path)
+    return output_path
 
 
-settings = load_settings()
+def _generate_with_huggingface(
+    prompt: str,
+    output_path: Path,
+) -> Path:
+    """Generate an image using Hugging Face Inference Providers."""
+    if not settings.HF_API_KEY:
+        raise RuntimeError(
+            "HF_API_KEY is missing. Configure it in Streamlit Secrets."
+        )
 
-settings.PANELS_DIR.mkdir(parents=True, exist_ok=True)
-settings.EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    from huggingface_hub import InferenceClient
+
+    client = InferenceClient(
+        provider="auto",
+        api_key=settings.HF_API_KEY,
+    )
+
+    image = client.text_to_image(
+        prompt,
+        model=settings.HF_IMAGE_MODEL,
+    )
+
+    image.save(output_path)
+    return output_path
+
+
+def _generate_with_local_diffusers(
+    prompt: str,
+    output_path: Path,
+) -> Path:
+    """Generate an image using a local Diffusers model."""
+    import torch
+    from diffusers import StableDiffusionPipeline
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    pipeline = StableDiffusionPipeline.from_pretrained(
+        settings.LOCAL_IMAGE_MODEL,
+        torch_dtype=(
+            torch.float16 if device == "cuda" else torch.float32
+        ),
+    ).to(device)
+
+    result = pipeline(
+        prompt,
+        width=settings.IMAGE_WIDTH,
+        height=settings.IMAGE_HEIGHT,
+        num_inference_steps=settings.IMAGE_STEPS,
+        guidance_scale=settings.IMAGE_GUIDANCE,
+    )
+
+    result.images[0].save(output_path)
+    return output_path
+
+
+def generate_image(prompt: str, filename: str) -> Path:
+    """Generate one comic panel image."""
+    settings.PANELS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = settings.PANELS_DIR / filename
+
+    provider = settings.IMAGE_PROVIDER.lower().strip()
+
+    if provider == "placeholder":
+        return _create_placeholder(prompt, output_path)
+
+    if provider in {"hf", "auto"}:
+        return _generate_with_huggingface(prompt, output_path)
+
+    if provider == "local":
+        return _generate_with_local_diffusers(prompt, output_path)
+
+    raise ValueError(
+        f"Unsupported IMAGE_PROVIDER: {settings.IMAGE_PROVIDER}"
+    )
