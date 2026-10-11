@@ -1,5 +1,6 @@
 
 from pathlib import Path
+import shutil
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -74,6 +75,68 @@ def _generate_with_huggingface(
     return output_path
 
 
+
+def _generate_with_qwen(prompt: str, output_path: Path) -> Path:
+    """Generate a comic panel using the public Qwen Image Space."""
+    from gradio_client import Client
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        client = Client("Qwen/Qwen-Image-2.1")
+
+        client.predict(
+            [],
+            prompt,
+            False,
+            False,
+            "speed",
+            0,
+            True,
+            api_name="/prepare_request",
+        )
+
+        result = client.predict(
+            prompt,
+            False,
+            False,
+            "./generation_logs_paper_case",
+            0,
+            settings.IMAGE_HEIGHT,
+            settings.IMAGE_WIDTH,
+            "",
+            api_name="/generate_request",
+        )
+
+        if isinstance(result, dict):
+            result = result.get("path") or result.get("name")
+
+        if not isinstance(result, (str, Path)):
+            raise RuntimeError("Qwen did not return a valid image file.")
+
+        source_path = Path(result)
+        if not source_path.is_file():
+            raise RuntimeError("The generated image file was not found.")
+
+        if source_path.resolve() != output_path.resolve():
+            shutil.copy2(source_path, output_path)
+
+        with Image.open(output_path) as image:
+            image.verify()
+
+        return output_path
+
+    except Exception as exc:
+        if isinstance(exc, RuntimeError) and str(exc).startswith(
+            "The generated image file"
+        ):
+            raise
+        raise RuntimeError(
+            "Qwen image generation failed. The free Space may be busy "
+            "or temporarily unavailable. Please try again later."
+        ) from exc
+
+
 def _generate_with_local_diffusers(
     prompt: str,
     output_path: Path,
@@ -115,6 +178,9 @@ def generate_image(prompt: str, filename: str) -> Path:
 
     if provider in {"hf", "auto"}:
         return _generate_with_huggingface(prompt, output_path)
+
+    if provider == "qwen":
+        return _generate_with_qwen(prompt, output_path)
 
     if provider == "local":
         return _generate_with_local_diffusers(prompt, output_path)

@@ -11,3 +11,5 @@ fpdf2>=2.8,<3.0
 python-dotenv>=1.1,<2.0
 pytest>=8.4,<9.0
 httpx>=0.28,<1.0
+streamlit
+gradio_client
