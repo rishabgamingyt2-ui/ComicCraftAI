@@ -3,7 +3,9 @@ from pathlib import Path
 import logging
 import os
 import shutil
+import time
 
+import requests
 from PIL import Image, ImageDraw, ImageFont
 
 from app.config import settings
@@ -55,50 +57,8 @@ def _create_placeholder(prompt: str, output_path: Path) -> Path:
     return output_path
 
 
-def _generate_with_huggingface(
-    prompt: str,
-    output_path: Path,
-) -> Path:
-    """Generate an image using Hugging Face Inference Providers."""
-    token = (
-        os.environ.get("HF_API_KEY", "").strip()
-        or str(getattr(settings, "HF_API_KEY", "") or "").strip()
-    )
-
-    if not token:
-        try:
-            import streamlit as st
-            token = (
-                str(st.secrets.get("HF_API_KEY", "") or "").strip()
-                or str(st.secrets.get("HF_TOKEN", "") or "").strip()
-            )
-        except Exception:
-            token = ""
-
-    if not token:
-        raise RuntimeError(
-            "HF_API_KEY is missing from the configured environment or Secrets."
-        )
-
-    from huggingface_hub import InferenceClient
-
-    client = InferenceClient(
-        provider="auto",
-        api_key=token,
-    )
-
-    image = client.text_to_image(
-        prompt,
-        model=settings.HF_IMAGE_MODEL,
-    )
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(output_path)
-    return output_path
-
-
 def _get_huggingface_token() -> str:
-    """Read a Hugging Face token without logging or exposing its value."""
+    """Read a Hugging Face token without exposing it."""
     token = (
         os.environ.get("HF_TOKEN", "").strip()
         or os.environ.get("HF_API_KEY", "").strip()
@@ -118,111 +78,177 @@ def _get_huggingface_token() -> str:
     except Exception:
         token = ""
 
+    return token
+
+
+def _generate_with_huggingface(
+    prompt: str,
+    output_path: Path,
+) -> Path:
+    """Generate using Hugging Face Inference Providers."""
+    token = _get_huggingface_token()
+
     if not token:
         raise RuntimeError(
-            "Hugging Face token not found. Check HF_TOKEN or "
-            "HF_API_KEY in Streamlit Cloud Secrets."
+            "Hugging Face token is missing from Streamlit Secrets."
         )
 
-    return token
+    from huggingface_hub import InferenceClient
+
+    client = InferenceClient(
+        provider="auto",
+        api_key=token,
+    )
+
+    image = client.text_to_image(
+        prompt,
+        model=settings.HF_IMAGE_MODEL,
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path)
+    return output_path
+
+
+def _generate_with_ai_horde(
+    prompt: str,
+    output_path: Path,
+) -> Path:
+    """Generate a real image through the community-powered AI Horde API."""
+    base_url = "https://aihorde.net/api/v2"
+
+    headers = {
+        "apikey": "0000000000",
+        "Client-Agent": (
+            "ComicCraftAI:1.0:"
+            "github.com/rishabgamingyt2-ui/ComicCraftAI"
+        ),
+    }
+
+    # AI Horde image dimensions should be multiples of 64.
+    width = max(
+        256,
+        min(1024, (int(settings.IMAGE_WIDTH) // 64) * 64),
+    )
+    height = max(
+        256,
+        min(1024, (int(settings.IMAGE_HEIGHT) // 64) * 64),
+    )
+
+    payload = {
+        "prompt": prompt,
+        "params": {
+            "width": width,
+            "height": height,
+            "steps": 20,
+            "n": 1,
+        },
+        "nsfw": False,
+        "censor_nsfw": True,
+        "r2": True,
+    }
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Submitting image request to AI Horde.")
+
+    try:
+        response = requests.post(
+            f"{base_url}/generate/async",
+            headers=headers,
+            json=payload,
+            timeout=45,
+        )
+        response.raise_for_status()
+        request_id = response.json().get("id")
+
+        if not request_id:
+            raise RuntimeError(
+                "AI Horde did not return a generation request ID."
+            )
+
+        logger.info("AI Horde request submitted successfully.")
+
+        deadline = time.monotonic() + 600
+
+        while time.monotonic() < deadline:
+            time.sleep(5)
+
+            status_response = requests.get(
+                f"{base_url}/generate/status/{request_id}",
+                headers=headers,
+                timeout=30,
+            )
+            status_response.raise_for_status()
+            status = status_response.json()
+
+            if status.get("faulted"):
+                raise RuntimeError(
+                    "AI Horde could not complete this image request. "
+                    "Try again later."
+                )
+
+            if status.get("done"):
+                generations = status.get("generations") or []
+
+                if not generations:
+                    raise RuntimeError(
+                        "AI Horde finished without returning an image."
+                    )
+
+                image_url = generations[0].get("img")
+
+                if not image_url:
+                    raise RuntimeError(
+                        "AI Horde returned no image URL."
+                    )
+
+                image_response = requests.get(
+                    image_url,
+                    timeout=90,
+                )
+                image_response.raise_for_status()
+
+                output_path.write_bytes(image_response.content)
+
+                try:
+                    with Image.open(output_path) as generated_image:
+                        generated_image.verify()
+                except Exception as exc:
+                    output_path.unlink(missing_ok=True)
+                    raise RuntimeError(
+                        "AI Horde returned an invalid image file."
+                    ) from exc
+
+                logger.info("AI Horde image generation completed.")
+                return output_path
+
+        raise TimeoutError(
+            "AI Horde is taking too long. Its queue may be busy. "
+            "Please try again later."
+        )
+
+    except requests.RequestException as exc:
+        logger.exception("AI Horde request failed.")
+        raise RuntimeError(
+            "Could not connect to AI Horde. Please try again later."
+        ) from exc
 
 
 def _generate_with_qwen(
     prompt: str,
     output_path: Path,
 ) -> Path:
-    """Generate an image through the public Qwen Space."""
-    from gradio_client import Client
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        hf_token = _get_huggingface_token()
-
-        logger.info("Connecting to Qwen Image Space.")
-
-        client = Client(
-        "Qwen/Qwen-Image-2.1",
-        token=hf_token,
-       )
-
-        logger.info("Preparing Qwen image request.")
-
-        client.predict(
-            [],
-            prompt,
-            False,
-            False,
-            "speed",
-            0,
-            True,
-            api_name="/prepare_request",
-        )
-
-        logger.info("Requesting Qwen image generation.")
-
-        result = client.predict(
-            prompt,
-            False,
-            False,
-            "./generation_logs_paper_case",
-            0,
-            settings.IMAGE_HEIGHT,
-            settings.IMAGE_WIDTH,
-            "",
-            api_name="/generate_request",
-        )
-
-        # Normalize common Gradio file-result formats.
-        if isinstance(result, dict):
-            result = result.get("path") or result.get("name")
-
-        if isinstance(result, (list, tuple)) and result:
-            result = result[0]
-
-        if isinstance(result, dict):
-            result = result.get("path") or result.get("name")
-
-        if not isinstance(result, (str, Path)):
-            raise RuntimeError(
-                "Qwen did not return a supported image file path."
-            )
-
-        source_path = Path(result)
-
-        if not source_path.is_file():
-            raise RuntimeError(
-                "Qwen returned a file path that does not exist."
-            )
-
-        if source_path.resolve() != output_path.resolve():
-            shutil.copy2(source_path, output_path)
-
-        # Verify the output file is a valid image.
-        with Image.open(output_path) as generated_image:
-            generated_image.verify()
-
-        logger.info("Qwen image generation completed.")
-        return output_path
-
-    except Exception as exc:
-        # The server logs contain diagnostic details, never the token.
-        logger.exception("Qwen image generation failed.")
-
-        if isinstance(exc, RuntimeError):
-            raise
-
-        raise RuntimeError(
-            f"Qwen image generation failed "
-            f"({type(exc).__name__}): {exc}"
-        ) from exc
+    """Kept for compatibility; use AI Horde instead of exhausted Qwen."""
+    logger.info("Redirecting Qwen provider to AI Horde.")
+    return _generate_with_ai_horde(prompt, output_path)
 
 
 def _generate_with_local_diffusers(
     prompt: str,
     output_path: Path,
 ) -> Path:
-    """Generate an image using a locally installed Diffusers model."""
+    """Generate using a locally installed Diffusers model."""
     import torch
     from diffusers import StableDiffusionPipeline
 
@@ -254,7 +280,7 @@ def generate_image(prompt: str, filename: str) -> Path:
     settings.PANELS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = settings.PANELS_DIR / filename
 
-    provider = settings.IMAGE_PROVIDER.lower().strip()
+    provider = str(settings.IMAGE_PROVIDER).lower().strip()
     logger.info("Image provider selected: %s", provider)
 
     if provider == "placeholder":
@@ -263,8 +289,8 @@ def generate_image(prompt: str, filename: str) -> Path:
     if provider in {"hf", "auto"}:
         return _generate_with_huggingface(prompt, output_path)
 
-    if provider == "qwen":
-        return _generate_with_qwen(prompt, output_path)
+    if provider in {"qwen", "aihorde", "ai_horde"}:
+        return _generate_with_ai_horde(prompt, output_path)
 
     if provider == "local":
         return _generate_with_local_diffusers(prompt, output_path)

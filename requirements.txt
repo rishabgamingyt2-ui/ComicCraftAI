@@ -13,3 +13,4 @@ pytest>=8.4,<9.0
 httpx>=0.28,<1.0
 streamlit
 gradio_client
+requests
