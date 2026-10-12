@@ -1,3 +1,4 @@
+
 import os
 from pathlib import Path
 
@@ -13,6 +14,7 @@ def load_secrets():
         "GEMINI_OUTLINE_MODEL",
         "GEMINI_STORY_MODEL",
         "IMAGE_PROVIDER",
+        "HF_TOKEN",
         "HF_API_KEY",
         "HF_IMAGE_MODEL",
         "LOCAL_IMAGE_MODEL",
@@ -35,7 +37,7 @@ def load_secrets():
 load_secrets()
 
 
-# Import ComicCraft modules AFTER loading secrets
+# Import modules after loading secrets
 from app.config import settings
 from app.gemini_flash import generate_outline
 from app.gemini_pro import generate_story
@@ -45,12 +47,46 @@ from app.exporters import save_pdf
 
 
 # ---------------------------------------------------------
-# Streamlit page configuration
+# Page configuration
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="ComicCraft AI",
     page_icon="🎨",
     layout="wide",
+)
+
+
+# ---------------------------------------------------------
+# Custom styling
+# ---------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+
+    .comic-panel {
+        max-width: 650px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .comic-panel img {
+        max-width: 100%;
+        height: auto;
+        object-fit: contain;
+    }
+
+    div[data-testid="stImage"] {
+        max-width: 650px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -127,20 +163,18 @@ if st.button(
     type="primary",
     use_container_width=True,
 ):
-
     if not prompt.strip():
         st.warning("Please enter a story idea first.")
         st.stop()
 
     try:
+        from app.schemas import PromptRequest
+
         with st.status(
             "Creating your comic...",
             expanded=True,
         ) as status:
-
             st.write("🧠 Generating story outline...")
-
-            from app.schemas import PromptRequest
 
             user_request = PromptRequest(
                 prompt=prompt,
@@ -165,8 +199,7 @@ if st.button(
 
             for panel in story.panels:
                 filename = (
-                    f"streamlit_panel_"
-                    f"{panel.panel_number}.png"
+                    f"streamlit_panel_{panel.panel_number}.png"
                 )
 
                 image_path = generate_image(
@@ -186,8 +219,7 @@ if st.button(
             st.write("📄 Creating PDF...")
 
             pdf_filename = (
-                f"streamlit_comic_{story.title[:20]}"
-                ".pdf"
+                f"streamlit_comic_{story.title[:20]}.pdf"
             )
 
             pdf_path = save_pdf(
@@ -199,54 +231,65 @@ if st.button(
             status.update(
                 label="Comic generated successfully! 🎉",
                 state="complete",
+                expanded=False,
             )
-
 
         # -------------------------------------------------
         # Display result
         # -------------------------------------------------
         st.divider()
-
         st.header(f"📖 {story.title}")
 
         for panel in comic_panels:
+            st.subheader(f"Panel {panel.panel_number}")
 
-            st.subheader(
-                f"Panel {panel.panel_number}"
-            )
+            image_path = Path(panel.image_path)
 
-            st.image(
-                str(panel.image_path),
-                use_container_width=True,
-            )
-
-            if hasattr(panel, "scene"):
-                st.write(
-                    f"**Scene:** {panel.scene}"
+            if image_path.is_file():
+                # Limit display width while preserving aspect ratio.
+                st.image(
+                    str(image_path),
+                    width=550,
+                )
+            else:
+                st.warning(
+                    f"Image for Panel {panel.panel_number} "
+                    "could not be found."
                 )
 
-            if hasattr(panel, "narration"):
+            if hasattr(panel, "scene") and panel.scene:
+                st.write(f"**Scene:** {panel.scene}")
+
+            if (
+                hasattr(panel, "narration")
+                and panel.narration
+            ):
                 st.write(
                     f"**Narration:** {panel.narration}"
                 )
 
-            st.divider()
+            with st.expander("View image prompt"):
+                matching_panel = next(
+                    (
+                        item
+                        for item in story.panels
+                        if item.panel_number == panel.panel_number
+                    ),
+                    None,
+                )
 
+                if matching_panel:
+                    st.write(matching_panel.image_prompt)
+
+            st.divider()
 
         # -------------------------------------------------
         # PDF download
         # -------------------------------------------------
-        pdf_file_path = (
-            settings.EXPORTS_DIR / pdf_filename
-        )
+        pdf_file_path = settings.EXPORTS_DIR / pdf_filename
 
         if pdf_file_path.exists():
-
-            with open(
-                pdf_file_path,
-                "rb",
-            ) as file:
-
+            with open(pdf_file_path, "rb") as file:
                 st.download_button(
                     label="📥 Download Comic PDF",
                     data=file.read(),
@@ -254,14 +297,16 @@ if st.button(
                     mime="application/pdf",
                     use_container_width=True,
                 )
+        else:
+            st.warning(
+                "The comic was generated, but the PDF file "
+                "could not be found."
+            )
 
     except Exception as error:
-
         st.error(
-            "Something went wrong while generating "
-            "the comic."
+            "Something went wrong while generating the comic."
         )
-
         st.exception(error)
 
 
@@ -271,5 +316,5 @@ if st.button(
 st.divider()
 
 st.caption(
-    "ComicCraft AI • Powered by Gemini + Hugging Face"
+    "ComicCraft AI • Powered by Gemini + AI image generation"
 )
