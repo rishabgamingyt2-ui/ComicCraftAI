@@ -1,14 +1,19 @@
 
 from pathlib import Path
+import logging
 import shutil
 
 from PIL import Image, ImageDraw, ImageFont
 
 from app.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 def _create_placeholder(prompt: str, output_path: Path) -> Path:
     """Create a placeholder image for development/testing."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     width = settings.IMAGE_WIDTH
     height = settings.IMAGE_HEIGHT
 
@@ -71,19 +76,27 @@ def _generate_with_huggingface(
         model=settings.HF_IMAGE_MODEL,
     )
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(output_path)
+
     return output_path
 
 
-
-def _generate_with_qwen(prompt: str, output_path: Path) -> Path:
+def _generate_with_qwen(
+    prompt: str,
+    output_path: Path,
+) -> Path:
     """Generate a comic panel using the public Qwen Image Space."""
     from gradio_client import Client
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
+        logger.info("Connecting to the Qwen Image Space.")
+
         client = Client("Qwen/Qwen-Image-2.1")
+
+        logger.info("Preparing the Qwen generation request.")
 
         client.predict(
             [],
@@ -95,6 +108,8 @@ def _generate_with_qwen(prompt: str, output_path: Path) -> Path:
             True,
             api_name="/prepare_request",
         )
+
+        logger.info("Requesting image generation from Qwen.")
 
         result = client.predict(
             prompt,
@@ -108,32 +123,53 @@ def _generate_with_qwen(prompt: str, output_path: Path) -> Path:
             api_name="/generate_request",
         )
 
+        # Some Gradio endpoints return a file path directly;
+        # others return a dictionary containing the file path.
+        if isinstance(result, dict):
+            result = result.get("path") or result.get("name")
+
+        # Handle a list or tuple if the Space returns a wrapped result.
+        if isinstance(result, (list, tuple)) and result:
+            result = result[0]
+
         if isinstance(result, dict):
             result = result.get("path") or result.get("name")
 
         if not isinstance(result, (str, Path)):
-            raise RuntimeError("Qwen did not return a valid image file.")
+            raise RuntimeError(
+                "Qwen returned an unsupported result instead of an image path. "
+                f"Result type: {type(result).__name__}"
+            )
 
         source_path = Path(result)
+
         if not source_path.is_file():
-            raise RuntimeError("The generated image file was not found.")
+            raise RuntimeError(
+                "Qwen returned a file path that does not exist in this runtime."
+            )
 
         if source_path.resolve() != output_path.resolve():
             shutil.copy2(source_path, output_path)
 
-        with Image.open(output_path) as image:
-            image.verify()
+        # Verify the output is a readable image.
+        with Image.open(output_path) as generated_image:
+            generated_image.verify()
+
+        logger.info("Qwen image generated successfully.")
 
         return output_path
 
     except Exception as exc:
-        if isinstance(exc, RuntimeError) and str(exc).startswith(
-            "The generated image file"
-        ):
+        # Log the full exception for diagnosis in Streamlit Cloud logs.
+        logger.exception("Qwen image generation failed.")
+
+        # Preserve clear validation errors.
+        if isinstance(exc, RuntimeError):
             raise
+
+        # Avoid hiding the actual API or connection error.
         raise RuntimeError(
-            "Qwen image generation failed. The free Space may be busy "
-            "or temporarily unavailable. Please try again later."
+            f"Qwen image generation failed ({type(exc).__name__}): {exc}"
         ) from exc
 
 
@@ -162,16 +198,20 @@ def _generate_with_local_diffusers(
         guidance_scale=settings.IMAGE_GUIDANCE,
     )
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     result.images[0].save(output_path)
+
     return output_path
 
 
 def generate_image(prompt: str, filename: str) -> Path:
-    """Generate one comic panel image."""
+    """Generate one comic panel image using the configured provider."""
     settings.PANELS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = settings.PANELS_DIR / filename
 
     provider = settings.IMAGE_PROVIDER.lower().strip()
+
+    logger.info("Image provider selected: %s", provider)
 
     if provider == "placeholder":
         return _create_placeholder(prompt, output_path)
