@@ -142,9 +142,9 @@ def _generate_with_qwen(
         logger.info("Connecting to Qwen Image Space.")
 
         client = Client(
-            "Qwen/Qwen-Image-2.1",
-            hf_token=hf_token,
-        )
+        "Qwen/Qwen-Image-2.1",
+        token=hf_token,
+       )
 
         logger.info("Preparing Qwen image request.")
 
