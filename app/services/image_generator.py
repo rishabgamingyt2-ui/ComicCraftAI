@@ -94,7 +94,31 @@ def _generate_with_qwen(
 
     try:
         # Read the token from environment variables or Streamlit Secrets.
-        hf_token = os.environ.get("HF_TOKEN", "").strip()
+        
+        # Read the token from supported environment and settings names.
+        hf_token = (
+            os.environ.get("HF_TOKEN", "").strip()
+            or os.environ.get("HF_API_KEY", "").strip()
+            or str(getattr(settings, "HF_API_KEY", "") or "").strip()
+        )
+
+        if not hf_token:
+            try:
+                import streamlit as st
+
+                hf_token = (
+                    str(st.secrets.get("HF_TOKEN", "") or "").strip()
+                    or str(st.secrets.get("HF_API_KEY", "") or "").strip()
+                )
+            except Exception:
+                hf_token = ""
+
+        if not hf_token:
+            raise RuntimeError(
+                "Hugging Face token not found. Check HF_TOKEN or "
+                "HF_API_KEY in Streamlit Cloud Secrets."
+            )
+
 
         if not hf_token:
             try:
