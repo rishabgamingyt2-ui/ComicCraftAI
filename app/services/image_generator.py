@@ -60,16 +60,31 @@ def _generate_with_huggingface(
     output_path: Path,
 ) -> Path:
     """Generate an image using Hugging Face Inference Providers."""
-    if not settings.HF_API_KEY:
+    token = (
+        os.environ.get("HF_API_KEY", "").strip()
+        or str(getattr(settings, "HF_API_KEY", "") or "").strip()
+    )
+
+    if not token:
+        try:
+            import streamlit as st
+            token = (
+                str(st.secrets.get("HF_API_KEY", "") or "").strip()
+                or str(st.secrets.get("HF_TOKEN", "") or "").strip()
+            )
+        except Exception:
+            token = ""
+
+    if not token:
         raise RuntimeError(
-            "HF_API_KEY is missing. Configure it in Streamlit Secrets."
+            "HF_API_KEY is missing from the configured environment or Secrets."
         )
 
     from huggingface_hub import InferenceClient
 
     client = InferenceClient(
         provider="auto",
-        api_key=settings.HF_API_KEY,
+        api_key=token,
     )
 
     image = client.text_to_image(
@@ -79,68 +94,59 @@ def _generate_with_huggingface(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(output_path)
-
     return output_path
+
+
+def _get_huggingface_token() -> str:
+    """Read a Hugging Face token without logging or exposing its value."""
+    token = (
+        os.environ.get("HF_TOKEN", "").strip()
+        or os.environ.get("HF_API_KEY", "").strip()
+        or str(getattr(settings, "HF_API_KEY", "") or "").strip()
+    )
+
+    if token:
+        return token
+
+    try:
+        import streamlit as st
+
+        token = (
+            str(st.secrets.get("HF_TOKEN", "") or "").strip()
+            or str(st.secrets.get("HF_API_KEY", "") or "").strip()
+        )
+    except Exception:
+        token = ""
+
+    if not token:
+        raise RuntimeError(
+            "Hugging Face token not found. Check HF_TOKEN or "
+            "HF_API_KEY in Streamlit Cloud Secrets."
+        )
+
+    return token
 
 
 def _generate_with_qwen(
     prompt: str,
     output_path: Path,
 ) -> Path:
-    """Generate an image through the Qwen Space using HF authentication."""
+    """Generate an image through the public Qwen Space."""
     from gradio_client import Client
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Read the token from environment variables or Streamlit Secrets.
-        
-        # Read the token from supported environment and settings names.
-        hf_token = (
-            os.environ.get("HF_TOKEN", "").strip()
-            or os.environ.get("HF_API_KEY", "").strip()
-            or str(getattr(settings, "HF_API_KEY", "") or "").strip()
-        )
+        hf_token = _get_huggingface_token()
 
-        if not hf_token:
-            try:
-                import streamlit as st
-
-                hf_token = (
-                    str(st.secrets.get("HF_TOKEN", "") or "").strip()
-                    or str(st.secrets.get("HF_API_KEY", "") or "").strip()
-                )
-            except Exception:
-                hf_token = ""
-
-        if not hf_token:
-            raise RuntimeError(
-                "Hugging Face token not found. Check HF_TOKEN or "
-                "HF_API_KEY in Streamlit Cloud Secrets."
-            )
-
-
-        if not hf_token:
-            try:
-                import streamlit as st
-
-                hf_token = str(st.secrets.get("HF_TOKEN", "")).strip()
-            except Exception:
-                hf_token = ""
-
-        if not hf_token:
-            raise RuntimeError(
-                "HF_TOKEN is missing. Add it to Streamlit Cloud Secrets."
-            )
-
-        logger.info("Connecting to the authenticated Qwen Space.")
+        logger.info("Connecting to Qwen Image Space.")
 
         client = Client(
             "Qwen/Qwen-Image-2.1",
             hf_token=hf_token,
         )
 
-        logger.info("Preparing the Qwen generation request.")
+        logger.info("Preparing Qwen image request.")
 
         client.predict(
             [],
@@ -153,7 +159,7 @@ def _generate_with_qwen(
             api_name="/prepare_request",
         )
 
-        logger.info("Requesting image generation from Qwen.")
+        logger.info("Requesting Qwen image generation.")
 
         result = client.predict(
             prompt,
@@ -179,7 +185,7 @@ def _generate_with_qwen(
 
         if not isinstance(result, (str, Path)):
             raise RuntimeError(
-                "Qwen did not return a valid image file path."
+                "Qwen did not return a supported image file path."
             )
 
         source_path = Path(result)
@@ -192,14 +198,15 @@ def _generate_with_qwen(
         if source_path.resolve() != output_path.resolve():
             shutil.copy2(source_path, output_path)
 
-        # Confirm that the saved output is a valid image.
+        # Verify the output file is a valid image.
         with Image.open(output_path) as generated_image:
             generated_image.verify()
 
-        logger.info("Qwen image generated successfully.")
+        logger.info("Qwen image generation completed.")
         return output_path
 
     except Exception as exc:
+        # The server logs contain diagnostic details, never the token.
         logger.exception("Qwen image generation failed.")
 
         if isinstance(exc, RuntimeError):
